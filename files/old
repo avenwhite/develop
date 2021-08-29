@@ -1,0 +1,120 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"regexp"
+)
+type DomainUpdater  struct {
+	DomainName      		string 			`json:"name"`
+	Host                	string 			`json:"host"`
+	Port	                string        	`json:"port"`
+}
+
+var domain []DomainUpdater
+
+func sliceToDomainUpdater(elements []string) map[string]string {
+	elementMap := make(map[string]string)
+	domain = nil
+	for i:=0; i<len(elements)-1; i+=2  {
+		elementMap["DomainName"] = elements[i]
+		var re = regexp.MustCompile(`http:\/\/(.*):`)
+		matchHost := re.FindStringSubmatch(elements[i+1])
+		elementMap["Host"] = matchHost[1]
+		re = regexp.MustCompile(`http:\/\/.*:(.*$)`)
+		matchPort := re.FindStringSubmatch(elements[i+1])
+		elementMap["Port"] = matchPort[1]
+		//if len(domain)==0 {
+		//	domain = append(domain, DomainUpdater{DomainName: elementMap["DomainName"], Host: elementMap["Host"], Port: elementMap["Port"]})
+		//	fmt.Println("Domains add initional domain ", domain)
+		//}
+		domain = append(domain, DomainUpdater{DomainName: elementMap["DomainName"], Host: elementMap["Host"], Port: elementMap["Port"]})
+	}
+	return elementMap
+}
+func parseConfFile2(fileName string) []string{
+	bytes, err := os.ReadFile(fileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var fileConf string
+	fileConf=string(bytes[:])
+	re:= regexp.MustCompile(`(?sm)(server .*?}+.})`)
+	matchServers := re.FindAllString(fileConf,-1)
+	return matchServers
+}
+
+func parseConfFile() map[string]string {
+	var fileContent []string
+	file, err := os.Open("files/nginx.conf")
+	defer file.Close()
+	if err != nil{
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	data := make([]byte, 64)
+	for{
+		n, err := file.Read(data)
+		if err == io.EOF{   // если конец файла
+			break           // выходим из цикла
+		}
+		var tempS []string
+		re:= regexp.MustCompile(`(proxy_pass|server_name)(.*);`)
+		tempS=re.FindStringSubmatch(string(re.Find(data[:n])))
+		if len(tempS)>1 {
+			fileContent=append(fileContent,tempS[2])
+		}
+
+
+	}
+		fmt.Println(fileContent)
+		return sliceToDomainUpdater(fileContent)
+}
+
+func getDomains(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	parseConfFile()
+	json.NewEncoder(w).Encode(domain)
+}
+
+func saveDomain(filename string,text string) {
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	if _, err = f.WriteString(text); err != nil {
+		panic(err)
+	}
+
+}
+
+func createDomain (w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var tdomain DomainUpdater
+		_ = json.NewDecoder(r.Body).Decode(&tdomain)
+		domain = append(domain, tdomain)
+		json.NewEncoder(w).Encode(tdomain)
+		fmt.Println(domain)
+		saveDomain("files/nginx.conf","\nserver {\n    listen 80;\n    server_name host.io;\n    root /var/www/test.io;\n    index index.php index.htm index.html;\n    location ~ \\\\.php$ {\n        proxy_pass http://10.22.45.6:8080;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\n###")
+
+}
+
+func main() {
+	fmt.Println(parseConfFile2("files/nginx.conf"))
+
+//	parseConfFile()
+//	r := mux.NewRouter()
+//	r.HandleFunc("/domains", getDomains).Methods("GET")
+//	r.HandleFunc("/domains", createDomain).Methods("POST")
+//	//r.HandleFunc("/books/{id}", getBook).Methods("GET")
+//
+//	//r.HandleFunc("/books/{id}", updateBook).Methods("PUT")
+//	//r.HandleFunc("/books/{id}", deleteBook).Methods("DELETE")
+//	log.Fatal(http.ListenAndServe(":8000", r))
+}
