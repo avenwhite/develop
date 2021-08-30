@@ -106,6 +106,7 @@ func getDomains(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	parseConfFile()
 	json.NewEncoder(w).Encode(domain)
+//	log.Println("getDomains: ",domain)
 }
 
 func saveDomain(tdomain DomainRequest,filename string) {
@@ -152,7 +153,16 @@ func createDomain (w http.ResponseWriter, r *http.Request) {
 			saveDomain(tdomain,"files/nginx.conf")
 		}
 }
+
 func main() {
+	cfgPath, err := ParseFlags()
+	if err != nil {
+		log.Fatal(err)
+	}
+	cfg, err := NewConfig(cfgPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 	r := mux.NewRouter()
 	r.HandleFunc("/domains", getDomains).Methods("GET")
 	r.HandleFunc("/domain", createDomain).Methods("POST")
